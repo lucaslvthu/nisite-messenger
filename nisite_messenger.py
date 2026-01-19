@@ -2,99 +2,90 @@ import streamlit as st
 from datetime import datetime
 
 # 1. CẤU HÌNH HỆ THỐNG
-st.set_page_config(page_title="Nisite Messenger", page_icon="💬", layout="centered")
+st.set_page_config(page_title="Nisite Messenger", page_icon="💬")
 
-# Giả lập cơ sở dữ liệu tin nhắn và bạn bè trong Session State
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
-if 'friends' not in st.session_state:
-    st.session_state.friends = ["Admin", "Bạn thân", "Người lạ"]
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'user_name' not in st.session_state:
-    st.session_state.user_name = ""
+# Giả lập Database dùng chung trên máy chủ
+@st.cache_resource
+def get_database():
+    return {
+        "users": {},       # Lưu {username: password}
+        "friendships": [], # Lưu các cặp bạn bè {user1, user2}
+        "messages": []     # Lưu tin nhắn toàn cục
+    }
 
-# CSS để tạo giao diện giống App di động
-st.markdown("""
-    <style>
-    .stApp { background-color: #f0f2f5; }
-    .chat-bubble-user { background-color: #dcf8c6; padding: 10px; border-radius: 15px; margin-bottom: 10px; text-align: right; border: 1px solid #c7edba; }
-    .chat-bubble-other { background-color: white; padding: 10px; border-radius: 15px; margin-bottom: 10px; text-align: left; border: 1px solid #e1e1e1; }
-    .taskbar { position: fixed; bottom: 0; left: 0; width: 100%; background: white; padding: 10px; display: flex; justify-content: space-around; border-top: 1px solid #ddd; z-index: 100; }
-    .main-container { margin-bottom: 80px; }
-    </style>
-    """, unsafe_allow_html=True)
+db = get_database()
 
-# 2. GIAO DIỆN ĐĂNG NHẬP
-if not st.session_state.logged_in:
-    st.markdown("<h1 style='text-align: center; color: #075e54;'>Nisite</h1>", unsafe_allow_html=True)
-    with st.container():
-        st.info("Ứng dụng không xác thực danh tính. Chỉ cần nhập tên để bắt đầu.")
-        name = st.text_input("Tên đăng nhập (Username)")
-        pwd = st.text_input("Mật khẩu", type="password")
-        if st.button("Bắt đầu trò chuyện", use_container_width=True, type="primary"):
-            if name and pwd:
-                st.session_state.user_name = name
-                st.session_state.logged_in = True
+# 2. XỬ LÝ ĐĂNG NHẬP / ĐĂNG KÝ
+if 'current_user' not in st.session_state:
+    st.title("🌐 Nisite Messenger")
+    mode = st.radio("Chế độ", ["Đăng nhập", "Đăng ký"], horizontal=True)
+    user = st.text_input("Tên đăng nhập").lower().strip()
+    pwd = st.text_input("Mật khẩu", type="password")
+
+    if mode == "Đăng ký":
+        if st.button("Tạo tài khoản"):
+            if user in db["users"]:
+                st.error("Tên này đã có người dùng! Hãy chọn tên khác.")
+            elif user and pwd:
+                db["users"][user] = pwd
+                st.success("Đăng ký xong! Mời bạn chuyển sang Đăng nhập.")
+    else:
+        if st.button("Vào Nisite"):
+            if user in db["users"] and db["users"][user] == pwd:
+                st.session_state.current_user = user
                 st.rerun()
+            else:
+                st.error("Sai thông tin đăng nhập.")
 
-# 3. GIAO DIỆN CHÍNH (SAU KHI ĐĂNG NHẬP)
+# 3. GIAO DIỆN CHÍNH
 else:
-    # Thanh Taskbar dưới cùng
-    tab_selection = st.sidebar.radio("Menu", ["💬 Nhắn tin", "👤 Tài khoản"], label_visibility="collapsed")
+    me = st.session_state.current_user
+    tab_chat, tab_account = st.tabs(["💬 Nhắn tin", "👤 Tài khoản"])
 
-    # --- MỤC NHẮN TIN ---
-    if "Nhắn tin" in tab_selection:
-        st.markdown(f"### 💬 Trò chuyện (Chào {st.session_state.user_name})")
-        
-        # Chọn bạn bè để nhắn
-        target_friend = st.selectbox("Chọn bạn bè để nhắn tin:", st.session_state.friends)
-        
+    with tab_chat:
+        # Mục Kết bạn
+        st.subheader("👥 Kết bạn")
+        friend_name = st.text_input("Nhập chính xác tên bạn bè:").lower().strip()
+        if st.button("Thêm bạn"):
+            if friend_name == me:
+                st.warning("Bạn không thể kết bạn với chính mình.")
+            elif friend_name not in db["users"]:
+                st.error("Không tìm thấy người dùng này.")
+            else:
+                if {me, friend_name} not in db["friendships"]:
+                    db["friendships"].append({me, friend_name})
+                    st.success(f"Đã kết bạn với {friend_name}!")
+                else:
+                    st.info("Hai bạn đã là bạn bè.")
+
         st.divider()
         
-        # Hiển thị khung chat
-        chat_placeholder = st.container(height=400)
-        with chat_placeholder:
-            for msg in st.session_state.messages:
-                if msg['sender'] == st.session_state.user_name:
-                    st.markdown(f"<div class='chat-bubble-user'><b>Bạn:</b> {msg['text']}<br><small>{msg['time']}</small></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div class='chat-bubble-other'><b>{msg['sender']}:</b> {msg['text']}<br><small>{msg['time']}</small></div>", unsafe_allow_html=True)
-
-        # Ô nhập tin nhắn
-        with st.form("send_message", clear_on_submit=True):
-            user_msg = st.text_input("Nhập tin nhắn...", placeholder="Nhắn gì đó...")
-            if st.form_submit_button("Gửi"):
-                if user_msg:
-                    new_msg = {
-                        "sender": st.session_state.user_name,
-                        "text": user_msg,
-                        "time": datetime.now().strftime("%H:%M")
-                    }
-                    st.session_state.messages.append(new_msg)
-                    st.rerun()
-
-    # --- MỤC TÀI KHOẢN (Giống Nisite trước đó) ---
-    else:
-        st.markdown("### 👤 Cài đặt tài khoản")
-        with st.expander("📝 Thông tin cá nhân"):
-            st.write(f"Tên người dùng: **{st.session_state.user_name}**")
-            st.text_input("Thay đổi tên hiển thị")
-            st.button("Lưu thay đổi")
-
-        with st.expander("👥 Quản lý bạn bè"):
-            new_friend = st.text_input("Nhập tên người dùng để kết bạn")
-            if st.button("Gửi lời mời kết bạn"):
-                st.success(f"Đã gửi lời mời tới {new_friend}")
-
-        with st.expander("⚙️ Cài đặt hệ thống"):
-            st.radio("Giao diện", ["Sáng", "Tối"])
-            if st.button("Xóa tài khoản", type="secondary"):
-                st.warning("Hành động này sẽ xóa toàn bộ dữ liệu.")
+        # Mục Nhắn tin (Chỉ hiện người đã kết bạn)
+        my_friends = [list(f - {me})[0] for f in db["friendships"] if me in f]
+        if not my_friends:
+            st.info("Chưa có bạn bè. Hãy kết bạn ở trên để nhắn tin.")
+        else:
+            chat_target = st.selectbox("Chọn người muốn nhắn:", my_friends)
             
-        if st.button("🚪 Đăng xuất", use_container_width=True):
-            st.session_state.logged_in = False
-            st.rerun()
+            # Khung hiển thị chat
+            chat_area = st.container(height=300, border=True)
+            with chat_area:
+                for m in db["messages"]:
+                    if {m['from'], m['to']} == {me, chat_target}:
+                        align = "right" if m['from'] == me else "left"
+                        color = "#dcf8c6" if m['from'] == me else "#f0f0f0"
+                        st.markdown(f"<div style='text-align: {align};'><div style='display: inline-block; background: {color}; padding: 8px 12px; border-radius: 15px; margin: 5px;'>{m['text']}</div></div>", unsafe_allow_html=True)
 
-# 4. LƯU Ý CHO VIỆC DÙNG CHUNG VỚI BẠN BÈ
-# Để bạn bè có thể nhắn tin cho nhau thật sự, bạn cần triển khai (deploy) code này lên internet.
+            # Ô gửi tin nhắn
+            with st.form("send", clear_on_submit=True):
+                txt = st.text_input("Nhập tin nhắn...")
+                if st.form_submit_button("Gửi"):
+                    if txt:
+                        db["messages"].append({"from": me, "to": chat_target, "text": txt, "time": datetime.now()})
+                        st.rerun()
+
+    with tab_account:
+        st.write(f"Đang dùng: **{me}**")
+        if st.button("Đăng xuất"):
+            del st.session_state.current_user
+            st.rerun()
